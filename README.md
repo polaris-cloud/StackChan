@@ -24,6 +24,23 @@ The **factory firmware** is feature-rich, including an AI Agent, lively and expr
 
 - Board support package: https://github.com/m5stack/StackChan-BSP
 
+## Development
+
+This is a multi-product repository with separate toolchains for the main firmware, mobile app, server, and remote
+controller. Start with:
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Developer knowledge index](docs/README.md)
+- [Agent instructions](AGENTS.md)
+
+The repository harness provides one shared entry point for local development and CI:
+
+```bash
+make doctor
+make validate
+make validate-changed
+```
+
 Thank you to the contributors of the StackChan community, especially: 
 
 | ![](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1205/avatar_stack_chan.jpg) | ![](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1205/avatar_takao.jpg) |
