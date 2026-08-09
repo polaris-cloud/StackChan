@@ -56,3 +56,8 @@
 
 `changed` 会按当前改动选择模块检查；交付前仍需依据风险补充真机、集成或发布验证。
 所有命令和 CI 覆盖范围见 [验证矩阵](docs/validation.md)。
+
+## Code Review Rules
+
+- 审查 PR 时必须读取 [代码审查规则](docs/code-review-rules.md)，并只应用与变更路径匹配的章节。
+- 只报告由本次变更新增、可操作且影响行为的问题；格式、lint 和确定性构建检查交给 CI。
