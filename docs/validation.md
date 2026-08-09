@@ -38,10 +38,12 @@
 
 - 仓库结构、文档链接和 OpenSpec strict validation
 - firmware host tests
+- ESP-IDF v5.5.4 主固件完整编译
 - server tests and build
 
-Flutter、完整主固件、遥控器和硬件验收需要专用 SDK/设备，当前保留为本地或后续
-self-hosted runner 检查。新增 CI 能力时必须复用 harness 子命令并更新本页。
+Flutter、遥控器固件和硬件验收需要专用 SDK/设备，当前保留为本地或后续 self-hosted
+runner 检查。主固件 CI 只执行编译，不刷写设备，也不替代网络路径和真机验收。新增 CI
+能力时必须复用 harness 子命令并更新本页。
 
 ## Security Validation
 
