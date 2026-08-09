@@ -4,12 +4,12 @@
 
 MicroLink 提供 Tailscale 控制面、DERP、STUN/DISCO、WireGuard-lwIP netif 以及绑定 VPN 源地址的 TCP/UDP API。其 WireGuard netif 使用 `100.64.0.0/10`，peer 以 `/32` AllowedIP 加入，解密后的 inner packet 通过 `tcpip_input` 进入 lwIP。它是非官方 Tailscale 实现，需要按不受信任的第三方网络依赖管理。
 
-截至本设计创建时已核验：
+截至 2026-08-08 复核时已核验：
 
 - `CamM2325/microlink` `main` 为 `216da3300f0493b0860247d43f7af5ce29df63a5`，仓库包含 MIT `LICENSE`。
-- `Csontikka/microlink` `main` 为 `aad403af0df6c08500c4236cb09c9ebc5bc00416`，以 CamM 提交为共同基线并增加较新的协调、netcheck、rebind 和 underlay pin 能力，同样保留 MIT `LICENSE`。
-- CamM PR #21 的 head 为 `da55beb7e8c13be2deaeacdc166c54d135d86235`；该修复尚未包含在上述 Csontikka commit 中。修复阻止 MapResponse 的未验证 endpoint 被预装为直连路径。
-- Csontikka commit 的 `microlink_pin_wg_output_netif()` 可将 WireGuard output、coord 和 DERP 自发 socket 绑定 STA underlay；当前构建仍无开关地编译并启动 HTTP 配置服务器，需要本地补丁关闭。
+- `Csontikka/microlink` `main` 为 `87b868429a3cc7afb6160f8c52657907e7d71833`，相对 CamM `main` ahead 43、behind 0，同样保留 MIT `LICENSE`。相对先前基线 `aad403af0df6c08500c4236cb09c9ebc5bc00416` 新增 4 个提交，覆盖 control stream liveness、DERP liveness、authoritative peer sweep、跨读取的 HTTP/2 frame 重组和按原因统计的重连诊断。
+- CamM PR #21 的 head 为 `da55beb7e8c13be2deaeacdc166c54d135d86235`；该修复仍未包含在上述 Csontikka commit 中，当前 `add_peer()` 仍会把 MapResponse 的首个 endpoint 预装进 WireGuard peer。该修复阻止未验证 endpoint 被当作直连路径。
+- Csontikka commit 的 `microlink_pin_wg_output_netif()` 可将 WireGuard output、coord 和 DERP 自发 socket 绑定 STA underlay。`CONFIG_ML_ENABLE_CONFIG_HTTPD` 已由上游提供且默认关闭，关闭时不会初始化或启动 HTTP server；但组件 CMake 仍无条件编译 `ml_config_httpd.c` 并依赖 `esp_http_server`，需要本地最小补丁裁掉未使用的源码和依赖。
 
 首期硬件是带 PSRAM 的 M5Stack CoreS3，underlay 是 2.4 GHz 家庭 Wi-Fi 或 iPhone 热点，目标是只通过 Mac 的 Tailnet IPv4 和受 ACL 限制的 TCP 端口访问 Codex 网关。
 
@@ -37,10 +37,10 @@ MicroLink 提供 Tailscale 控制面、DERP、STUN/DISCO、WireGuard-lwIP netif 
 
 ### 1. 以 Csontikka 固定提交加仓库补丁作为移植基线
 
-在 `firmware/repos.json` 增加 `Csontikka/microlink`，路径为 `components/microlink`，ref 固定为完整 commit `aad403af0df6c08500c4236cb09c9ebc5bc00416`。`firmware/patches/microlink.patch` 至少包含：
+在 `firmware/repos.json` 增加 `Csontikka/microlink`，路径为 `components/microlink`，ref 固定为 2026-08-08 复核时的最新完整 commit `87b868429a3cc7afb6160f8c52657907e7d71833`。这里的“最新”只用于选择本次受审基线，构建仍不得跟随浮动 `main`。`firmware/patches/microlink.patch` 至少包含：
 
 1. PR #21 等价的 DERP-first endpoint 验证修复。
-2. `CONFIG_ML_CONFIG_HTTPD` 默认关闭的构建与运行门控，关闭时不启动 HTTP server，尽量不链接 `esp_http_server`。
+2. 复用上游默认关闭的 `CONFIG_ML_ENABLE_CONFIG_HTTPD` 运行门控，并在关闭时从 CMake 源码和依赖中移除 HTTP server，使固件不链接 `esp_http_server`。
 3. ESP-IDF 5.5.4/CoreS3 编译所需且经过审查的最小兼容补丁。
 
 `fetch_repos.py` 增加“必要补丁”语义：MicroLink commit 不匹配或 patch check 失败时立即非零退出。补丁文件记录上游 URL、基线 SHA 和对应 PR，便于以后判断可否删除本地补丁。
@@ -115,7 +115,7 @@ CONFIG_ML_MAX_PEERS=8
 CONFIG_ML_NVS_MAX_PEERS=16
 CONFIG_ML_ZERO_COPY_WG=n
 CONFIG_ML_ENABLE_CELLULAR=n
-CONFIG_ML_CONFIG_HTTPD=n
+CONFIG_ML_ENABLE_CONFIG_HTTPD=n
 ```
 
 运行时 config 同时设置 `exit_node_ip=0`、空 `advertise_routes`，并不启动 `ml_net_switch`。所有 allocation/task 创建结果必须检查；失败时销毁部分实例并进入 Tailnet degraded，不能触发全固件 abort。启动、连接和停止前后记录 internal heap、largest block、PSRAM 和 NVS 水位，用真机数据决定是否继续保持 64 KB 配置。
@@ -149,7 +149,7 @@ Mac 侧验收要求网关只监听 Tailnet IPv4，ACL 仅允许 StackChan tag/no
 
 - **[非官方协议实现可能随 Tailscale 服务变化失效]** -> 固定 commit、保留 DERP/direct 诊断、将依赖升级作为独立变更，不自动跟随 `main`。
 - **[PR #21 仍未合入所选基线]** -> 仓库保留可追溯补丁并使 patch failure fail closed；上游合入后先做等价性审查再删除。
-- **[HTTP 配置服务器当前是无条件构建/启动路径]** -> 用默认关闭的本地 Kconfig 补丁门控，并在真机扫描监听 socket。
+- **[HTTP 配置服务器虽然默认不启动，但源码和依赖仍无条件进入组件构建]** -> 复用上游 `CONFIG_ML_ENABLE_CONFIG_HTTPD=n`，以本地 CMake 补丁裁掉源码和 `esp_http_server` 依赖，并在真机扫描监听 socket。
 - **[64 KB MapResponse 缓冲无法容纳较大 Tailnet]** -> 首期限制目标 Tailnet 与 peer 数量，记录解析错误和水位；需要更大缓冲时以 CoreS3 PSRAM 实测决定。
 - **[默认 16 KB NVS 还承载 Wi-Fi 和其他产品数据]** -> 首期把 cached peers 降至 16 并测量 entries；空间不足时 fail degraded，不擦除或迁移现有 NVS。
 - **[全局 lwIP netif 操作可能影响官方连接]** -> 不改 default netif，只加入 `/10` overlay 并在 disabled/stop 时验证完整移除；增加 off/on 路由回归。

@@ -1,10 +1,10 @@
 ## 1. Dependency Provenance And Patch Gate
 
-- [ ] 1.1 Record the reviewed MicroLink source URL, MIT license, baseline `aad403af0df6c08500c4236cb09c9ebc5bc00416`, CamM common base, and PR #21 source in the firmware third-party dependency documentation.
+- [ ] 1.1 Record the reviewed MicroLink source URL, MIT license, baseline `87b868429a3cc7afb6160f8c52657907e7d71833`, CamM common base, the four commits since `aad403af0df6c08500c4236cb09c9ebc5bc00416`, and PR #21 source in the firmware third-party dependency documentation.
 - [ ] 1.2 Add `Csontikka/microlink` to `firmware/repos.json` at `components/microlink` using the full pinned commit and a required `firmware/patches/microlink.patch`.
 - [ ] 1.3 Extend `firmware/fetch_repos.py` to verify the fetched `HEAD`, distinguish an already-applied patch from a mismatched patch, and fail nonzero when a required patch cannot be applied.
 - [ ] 1.4 Add and review the PR #21-equivalent DERP-first endpoint patch; include a focused test or source assertion proving an advertised endpoint is blank until a valid DISCO pong installs it.
-- [ ] 1.5 Add a default-off `CONFIG_ML_CONFIG_HTTPD` patch that prevents the HTTP configuration server from starting and removes its server dependency/source when disabled.
+- [ ] 1.5 Keep upstream `CONFIG_ML_ENABLE_CONFIG_HTTPD` off and add a CMake patch that removes the HTTP configuration source and `esp_http_server` dependency when disabled; verify no listener starts.
 - [ ] 1.6 Fetch MicroLink twice in a clean dependency checkout and verify both runs are deterministic, preserve the pinned commit, and report the required patch as applied or already present.
 
 ## 2. Build Configuration And State Machine
