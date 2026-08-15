@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
+
+usage() {
+    cat <<'EOF'
+StackChan repository harness
+
+Usage:
+  ./scripts/repo-harness doctor
+  ./scripts/repo-harness check
+  ./scripts/repo-harness validate <scope>
+
+Validation scopes:
+  quick          Repository structure, local links, Action pins, OpenSpec
+  changed        quick plus checks selected from the current Git changes
+  firmware-host  Host-side firmware CMake/CTest suite
+  firmware       Full StackChan firmware build with ESP-IDF 5.5.4
+  app            Flutter analyze and tests when present
+  server         Go tests and build
+  remote         Remote-controller firmware build with ESP-IDF 5.4.2
+  openspec       Strict validation of all OpenSpec artifacts
+  all            Every scope; requires all toolchains
+
+Optional environment:
+  HARNESS_BASE_REF  Git ref used by "validate changed" instead of the worktree diff
+EOF
+}
+
+fail() {
+    echo "repo-harness: $*" >&2
+    exit 1
+}
+
+require_tool() {
+    local tool="$1"
+    local hint="$2"
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool is required. $hint"
+}
+
+print_tool() {
+    local tool="$1"
+    local purpose="$2"
+    local path
+
+    if path="$(command -v "$tool" 2>/dev/null)"; then
+        printf "  [ok]      %-12s %s\n" "$tool" "$path"
+    else
+        printf "  [missing] %-12s %s\n" "$tool" "$purpose"
+    fi
+}
+
+doctor() {
+    echo "StackChan toolchain availability:"
+    print_tool git "repository operations"
+    print_tool make "root command aliases"
+    print_tool python3 "harness structural checks"
+    print_tool cmake "firmware host tests"
+    print_tool openspec "spec validation"
+    print_tool eim "ESP-IDF version selection"
+    print_tool idf.py "active ESP-IDF environment"
+    print_tool flutter "mobile app validation"
+    print_tool go "server validation"
+    echo
+    echo "Missing module tools are acceptable until that module is changed."
+}
+
+check_repository() {
+    require_tool python3 "Install Python 3."
+    python3 "$REPO_ROOT/scripts/check_repository.py"
+}
+
+validate_openspec() {
+    require_tool openspec "Install @fission-ai/openspec."
+    (
+        cd "$REPO_ROOT"
+        openspec validate --all --strict --no-interactive
+    )
+}
+
+validate_quick() {
+    check_repository
+    validate_openspec
+}
+
+validate_firmware_host() {
+    require_tool cmake "Install CMake 3.16 or newer."
+    (
+        local build_dir
+        build_dir="$(mktemp -d "${TMPDIR:-/tmp}/stackchan-host-tests.XXXXXX")"
+        trap 'rm -rf -- "$build_dir"' EXIT
+        cmake -S "$REPO_ROOT/firmware/tests" -B "$build_dir"
+        cmake --build "$build_dir"
+        ctest --test-dir "$build_dir" --output-on-failure
+    )
+}
+
+validate_firmware() {
+    if [[ ! -d "$REPO_ROOT/firmware/xiaozhi-esp32" ]]; then
+        fail "firmware dependencies are missing; run firmware/fetch_repos.py first"
+    fi
+
+    if command -v eim >/dev/null 2>&1; then
+        (
+            cd "$REPO_ROOT/firmware"
+            eim run "idf.py build" v5.5.4
+        )
+    elif command -v idf.py >/dev/null 2>&1; then
+        (
+            cd "$REPO_ROOT/firmware"
+            idf.py build
+        )
+    else
+        fail "firmware validation requires EIM v5.5.4 or an active ESP-IDF 5.5.4"
+    fi
+}
+
+validate_app() {
+    require_tool flutter "Install Flutter and add it to PATH."
+    if [[ ! -f "$REPO_ROOT/app/.dart_tool/package_config.json" ]]; then
+        fail "Flutter packages are missing; run 'flutter pub get' in app/"
+    fi
+
+    (
+        cd "$REPO_ROOT/app"
+        flutter analyze
+        if [[ -d test ]] && [[ -n "$(find test -type f -name '*_test.dart' -print -quit)" ]]; then
+            flutter test
+        fi
+    )
+}
+
+validate_server() {
+    require_tool go "Install the Go version declared in server/go.mod."
+    (
+        cd "$REPO_ROOT/server"
+        go test ./...
+        go build ./...
+    )
+}
+
+validate_remote() {
+    if command -v eim >/dev/null 2>&1; then
+        (
+            cd "$REPO_ROOT/remote/code"
+            eim run "idf.py build" v5.4.2
+        )
+    elif command -v idf.py >/dev/null 2>&1; then
+        (
+            cd "$REPO_ROOT/remote/code"
+            idf.py build
+        )
+    else
+        fail "remote validation requires EIM v5.4.2 or an active ESP-IDF 5.4.2"
+    fi
+}
+
+changed_files() {
+    if [[ -n "${HARNESS_BASE_REF:-}" ]]; then
+        git -C "$REPO_ROOT" diff --name-only "${HARNESS_BASE_REF}...HEAD"
+    else
+        git -C "$REPO_ROOT" diff --name-only HEAD
+        git -C "$REPO_ROOT" ls-files --others --exclude-standard
+    fi
+}
+
+validate_changed() {
+    local files
+    local needs_firmware=0
+    local needs_app=0
+    local needs_server=0
+    local needs_remote=0
+
+    validate_quick
+    files="$(changed_files | sort -u)"
+
+    if [[ -z "$files" ]]; then
+        echo "No changed files detected; quick validation is complete."
+        return
+    fi
+
+    while IFS= read -r path; do
+        case "$path" in
+            *.md | *.MD)
+                ;;
+            firmware/*)
+                needs_firmware=1
+                ;;
+            app/*)
+                needs_app=1
+                ;;
+            server/*)
+                needs_server=1
+                ;;
+            remote/code/*)
+                needs_remote=1
+                ;;
+        esac
+    done <<<"$files"
+
+    if [[ "$needs_firmware" -eq 1 ]]; then
+        validate_firmware_host
+        validate_firmware
+    fi
+    if [[ "$needs_app" -eq 1 ]]; then
+        validate_app
+    fi
+    if [[ "$needs_server" -eq 1 ]]; then
+        validate_server
+    fi
+    if [[ "$needs_remote" -eq 1 ]]; then
+        validate_remote
+    fi
+}
+
+validate_all() {
+    validate_quick
+    validate_firmware_host
+    validate_firmware
+    validate_app
+    validate_server
+    validate_remote
+}
+
+main() {
+    local command="${1:-help}"
+
+    case "$command" in
+        help | -h | --help)
+            usage
+            ;;
+        doctor)
+            doctor
+            ;;
+        check)
+            check_repository
+            ;;
+        validate)
+            case "${2:-quick}" in
+                quick)
+                    validate_quick
+                    ;;
+                changed)
+                    validate_changed
+                    ;;
+                firmware-host)
+                    validate_firmware_host
+                    ;;
+                firmware)
+                    validate_firmware
+                    ;;
+                app)
+                    validate_app
+                    ;;
+                server)
+                    validate_server
+                    ;;
+                remote)
+                    validate_remote
+                    ;;
+                openspec)
+                    validate_openspec
+                    ;;
+                all)
+                    validate_all
+                    ;;
+                *)
+                    usage
+                    fail "unknown validation scope: ${2:-}"
+                    ;;
+            esac
+            ;;
+        *)
+            usage
+            fail "unknown command: $command"
+            ;;
+    esac
+}
+
+main "$@"

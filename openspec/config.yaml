@@ -1,0 +1,39 @@
+schema: spec-driven
+
+context: |
+  Repository: M5Stack StackChan official monorepo.
+  Change scope: firmware/ only unless an artifact explicitly justifies another directory.
+  Firmware stack: ESP-IDF 5.5.x, C/C++, ESP32-S3 (M5Stack CoreS3) with PSRAM.
+  Existing networking is owned by XiaoZhi WifiBoard and Board::GetNetwork().
+  Preserve official Wi-Fi, DHCP, reconnect, OTA, App Center, XiaoZhi, and ordinary
+  public Internet traffic. MicroLink is an additional Tailnet overlay, not a
+  replacement network manager.
+  Target behavior: after Wi-Fi has an IP address and wall-clock time is usable,
+  start a MicroLink-based independent Tailscale node. Route only Tailnet IPv4
+  100.64.0.0/10 into the overlay; keep control-plane, DERP, STUN, WireGuard outer
+  UDP, and all ordinary public traffic bound to the physical Wi-Fi path.
+  First hardware target: M5Stack CoreS3 connected to 2.4 GHz Wi-Fi or an iPhone
+  hotspot, reaching a Codex gateway that listens only on the Mac Tailnet address.
+  Secrets and reusable Tailscale auth keys must never be committed.
+  MicroLink is an external dependency and must be pinned to an exact reviewed
+  commit. Its repository provenance, license, API compatibility, and the
+  endpoint-validation behavior represented by CamM2325/microlink PR #21 must be
+  verified before integration.
+
+rules:
+  proposal:
+    - Write artifacts in Chinese, while keeping code symbols and protocol names in English.
+    - State goals, non-goals, affected firmware surfaces, and compatibility impact.
+    - Separate verified repository facts from assumptions requiring hardware validation.
+  specs:
+    - Use normative MUST/SHOULD/MAY requirements and Given/When/Then scenarios.
+    - Include testable acceptance criteria for lifecycle, routing, security, recovery, and resource limits.
+    - Do not require credentials, reusable auth keys, or private Tailnet data in source control.
+  design:
+    - Name intended source boundaries and integration points without replacing the official network manager.
+    - Cover lifecycle state, route ownership, underlay binding, credential storage, observability, rollback, and failure modes.
+    - Record unresolved upstream and hardware questions as explicit decisions or gates.
+  tasks:
+    - Order work so dependency provenance and host-build checks precede device integration.
+    - Separate host-verifiable work from CoreS3 and iPhone-hotspot hardware acceptance.
+    - Include focused tests, strict OpenSpec validation, build verification, and rollback documentation.
